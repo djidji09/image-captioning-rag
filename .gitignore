@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Dataset and generated artifacts
+data/
+artifacts/
+embeddings/
+indexes/
+*.npy
+*.npz
+*.faiss
+
+# Credentials and local configuration
+.env
+secrets.json
+
+# Generated notebook outputs may be cleared before commits
