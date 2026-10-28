@@ -1,1 +1,13 @@
-
+numpy
+pandas
+Pillow
+matplotlib
+seaborn
+scikit-learn
+nltk
+spacy
+tqdm
+transformers
+sentence-transformers
+faiss-cpu
+PyYAML
