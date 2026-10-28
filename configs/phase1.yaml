@@ -1,1 +1,25 @@
+project:
+  name: image-captioning-rag
+  seed: 42
 
+dataset:
+  train_images: /content/drive/MyDrive/image-captioning-rag/00_original_data/train2017
+  val_images: /content/drive/MyDrive/image-captioning-rag/00_original_data/val2017
+  annotations: /content/drive/MyDrive/image-captioning-rag/00_original_data/annotations
+
+  knowledge_base_size: 10000
+  validation_size: 100
+  test_size: 100
+  expected_captions_per_image: 5
+
+models:
+  image_encoder: openai/clip-vit-base-patch32
+  text_encoder: sentence-transformers/all-MiniLM-L6-v2
+
+embeddings:
+  batch_size: 32
+  normalize: true
+
+retrieval:
+  index_type: IndexFlatIP
+  similarity: cosine
