@@ -1,0 +1,48 @@
+{
+  "dataset": {
+    "root": "..",
+    "images": {
+      "train": "../train2017/train2017",
+      "val": "../val2017/val2017"
+    },
+    "annotations": {
+      "train_instances": "../annotations_trainval2017/annotations/instances_train2017.json",
+      "train_captions": "../annotations_trainval2017/annotations/captions_train2017.json",
+      "val_instances": "../annotations_trainval2017/annotations/instances_val2017.json",
+      "val_captions": "../annotations_trainval2017/annotations/captions_val2017.json"
+    }
+  },
+  "outputs": {
+    "audit": "reports/phase1/dataset_audit.json",
+    "candidates": "reports/phase1/candidates",
+    "candidate_manifest": "reports/phase1/candidates/candidate_manifest.csv",
+    "splits": "01_splits"
+  },
+  "selection": {
+    "seed": 42,
+    "candidate_count": 10500,
+    "knowledge_base_count": 10000,
+    "validation_count": 100,
+    "test_count": 100,
+    "captions_per_image": 5
+  },
+  "embedding": {
+    "clip_model": "openai/clip-vit-base-patch32",
+    "sentence_transformer_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "batch_size": 32,
+    "device": "auto",
+    "normalize": true
+  },
+  "index": {
+    "type": "IndexFlatIP",
+    "near_duplicate_threshold": 0.95
+  },
+  "preprocessing": {
+    "max_size": 0,
+    "apply_exif_orientation": true,
+    "convert_to_rgb": true
+  },
+  "logging": {
+    "level": "INFO"
+  }
+}

@@ -10,12 +10,15 @@ from scripts.phase1 import (
     caption_rows,
     clean,
     clean_caption,
+    freeze_splits,
     explore,
     image_id_key,
     image_metadata,
     image_statistics,
     preprocess,
     quality_check,
+    retrieve_top_k,
+    select_candidates,
     split,
     select_splits,
 )
@@ -102,6 +105,34 @@ class PhaseOneTests(unittest.TestCase):
         self.assertEqual(metadata[0]["attributes"], [["wooden"]])
         self.assertEqual(metadata[0]["relationships"], [["next to table"]])
         self.assertEqual(metadata[0]["context"], {"scene": "indoor"})
+
+    @unittest.skipUnless(
+        __import__("importlib").util.find_spec("numpy"),
+        "NumPy is an optional retrieval dependency.",
+    )
+    def test_top_k_retrieval_orders_scores_and_excludes_query_image(self):
+        import numpy as np
+
+        vectors = np.asarray(
+            [[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]], dtype=np.float32
+        )
+        records = [
+            {"vector_id": "image:1", "image_id": "1"},
+            {"vector_id": "image:2", "image_id": "2"},
+            {"vector_id": "image:3", "image_id": "3"},
+        ]
+        results = retrieve_top_k(
+            np.asarray([1.0, 0.0]),
+            vectors,
+            records,
+            2,
+            excluded_image_ids={"1"},
+        )
+
+        self.assertEqual([row["image_id"] for row in results], ["2", "3"])
+        self.assertGreaterEqual(results[0]["score"], results[1]["score"])
+        with self.assertRaises(ValueError):
+            retrieve_top_k(np.zeros(2), vectors, records, 1)
 
     def test_explore_writes_class_cooccurrence_and_caption_statistics(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -219,6 +250,213 @@ class PhaseOneTests(unittest.TestCase):
         __import__("importlib").util.find_spec("PIL"),
         "Pillow is an optional dependency.",
     )
+    def test_candidate_selection_is_reproducible_and_audits_images(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            images = root / "train"
+            images.mkdir()
+            image_rows = []
+            caption_rows = []
+            for image_id in range(1, 5):
+                filename = f"{image_id}.jpg"
+                Image.new("RGB", (4, 4), (image_id * 20, 0, 0)).save(
+                    images / filename
+                )
+                image_rows.append(
+                    {"id": image_id, "file_name": filename, "width": 4, "height": 4}
+                )
+                caption_rows.extend(
+                    {
+                        "id": image_id * 10 + index,
+                        "image_id": image_id,
+                        "caption": f"Image {image_id}, caption {index}.",
+                    }
+                    for index in range(5)
+                )
+            instances = root / "instances.json"
+            captions = root / "captions.json"
+            instances.write_text(
+                json.dumps({"images": image_rows, "annotations": []}),
+                encoding="utf-8",
+            )
+            captions.write_text(
+                json.dumps({"annotations": caption_rows}), encoding="utf-8"
+            )
+
+            def run_selection(output):
+                select_candidates(
+                    SimpleNamespace(
+                        instances=str(instances),
+                        captions=str(captions),
+                        images=str(images),
+                        output=str(output),
+                        candidate_count=4,
+                        knowledge_base_count=2,
+                        validation_count=1,
+                        captions_per_image=5,
+                        seed=42,
+                    )
+                )
+                with (output / "candidate_manifest.csv").open(
+                    encoding="utf-8", newline=""
+                ) as file:
+                    return list(csv.DictReader(file))
+
+            first = run_selection(root / "selection1")
+            second = run_selection(root / "selection2")
+            self.assertEqual(
+                [row["image_id"] for row in first],
+                [row["image_id"] for row in second],
+            )
+            self.assertEqual({row["caption_count"] for row in first}, {"5"})
+
+    @unittest.skipUnless(
+        __import__("importlib").util.find_spec("PIL"),
+        "Pillow is an optional dependency.",
+    )
+    def test_frozen_splits_are_disjoint_provenanced_and_versioned(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            train_dir = root / "train"
+            val_dir = root / "val"
+            train_dir.mkdir()
+            val_dir.mkdir()
+            candidate_rows = []
+            train_images = []
+            train_captions = []
+            for image_id in range(1, 5):
+                filename = f"{image_id}.jpg"
+                source = train_dir / filename
+                Image.new("RGB", (4, 4), (image_id * 30, 0, 0)).save(source)
+                candidate_rows.append(
+                    {
+                        "image_id": str(image_id),
+                        "file_name": filename,
+                        "image_path": str(source),
+                        "path": str(source),
+                        "sha256": __import__("hashlib").sha256(
+                            source.read_bytes()
+                        ).hexdigest(),
+                    }
+                )
+                train_images.append(
+                    {
+                        "id": image_id,
+                        "file_name": filename,
+                        "width": 4,
+                        "height": 4,
+                    }
+                )
+                train_captions.extend(
+                    {
+                        "id": image_id * 10 + caption_index,
+                        "image_id": image_id,
+                        "caption": f"Train image {image_id}, caption {caption_index}.",
+                    }
+                    for caption_index in range(5)
+                )
+            val_images = []
+            val_captions = []
+            val_image = val_dir / "000000000101.jpg"
+            Image.new("RGB", (4, 4), "blue").save(val_image)
+            val_images.append(
+                {
+                    "id": 101,
+                    "file_name": val_image.name,
+                    "width": 4,
+                    "height": 4,
+                }
+            )
+            val_captions.extend(
+                {
+                    "id": 1000 + caption_index,
+                    "image_id": 101,
+                    "caption": f"Test image caption {caption_index}.",
+                }
+                for caption_index in range(5)
+            )
+            instances_path = root / "train_instances.json"
+            captions_path = root / "train_captions.json"
+            val_instances_path = root / "val_instances.json"
+            val_captions_path = root / "val_captions.json"
+            for path, data in (
+                (instances_path, {"images": train_images, "annotations": []}),
+                (captions_path, {"annotations": train_captions}),
+                (val_instances_path, {"images": val_images, "annotations": []}),
+                (val_captions_path, {"annotations": val_captions}),
+            ):
+                path.write_text(json.dumps(data), encoding="utf-8")
+            candidate_path = root / "candidates.csv"
+            with candidate_path.open("w", encoding="utf-8", newline="") as file:
+                writer = csv.DictWriter(
+                    file, fieldnames=list(candidate_rows[0])
+                )
+                writer.writeheader()
+                writer.writerows(candidate_rows)
+            output = root / "splits"
+            arguments = SimpleNamespace(
+                manifest=str(candidate_path),
+                instances=str(instances_path),
+                captions=str(captions_path),
+                test_instances=str(val_instances_path),
+                test_captions=str(val_captions_path),
+                test_images=str(val_dir),
+                output=str(output),
+                knowledge_base_count=2,
+                validation_count=1,
+                test_count=1,
+                captions_per_image=5,
+                seed=42,
+                near_duplicate_threshold=0.95,
+                force_new_splits=False,
+            )
+
+            freeze_splits(arguments)
+            manifest = json.loads((output / "splits_v2.json").read_text())
+            self.assertEqual(manifest["counts"]["test_captions"], 5)
+            self.assertTrue(all(manifest["leakage_audit"].values()))
+            with (output / "near_duplicate_review.csv").open(
+                encoding="utf-8", newline=""
+            ) as file:
+                review_rows = list(csv.DictReader(file))
+            self.assertTrue(
+                all(row["review_status"] == "pending" for row in review_rows)
+            )
+            with (output / "knowledge_base_manifest.csv").open(
+                encoding="utf-8", newline=""
+            ) as file:
+                kb_ids = {row["image_id"] for row in csv.DictReader(file)}
+            with (output / "validation_manifest.csv").open(
+                encoding="utf-8", newline=""
+            ) as file:
+                validation_ids = {
+                    row["image_id"] for row in csv.DictReader(file)
+                }
+            with (output / "test_manifest.csv").open(
+                encoding="utf-8", newline=""
+            ) as file:
+                test_ids = {row["image_id"] for row in csv.DictReader(file)}
+            self.assertEqual(len(kb_ids), 2)
+            self.assertEqual(len(validation_ids), 1)
+            self.assertEqual(test_ids, {"101"})
+            self.assertFalse(kb_ids & validation_ids)
+            self.assertFalse(kb_ids & test_ids)
+            self.assertFalse(validation_ids & test_ids)
+
+            with self.assertRaises(FileExistsError):
+                freeze_splits(arguments)
+            arguments.force_new_splits = True
+            freeze_splits(arguments)
+            self.assertTrue((output / "history" / "v2" / "splits_v2.json").is_file())
+
+    @unittest.skipUnless(
+        __import__("importlib").util.find_spec("PIL"),
+        "Pillow is an optional dependency.",
+    )
     def test_clean_documents_missing_corrupt_and_duplicate_images(self):
         from PIL import Image
 
@@ -308,12 +546,19 @@ class PhaseOneTests(unittest.TestCase):
 
             knowledge_base = [
                 {
-                    "image_id": image_id,
-                    "file_name": f"{image_id}.png",
-                    "path": str(paths[image_id]),
-                    "sha256": image_id * 64,
+                    "image_id": "1",
+                    "file_name": "1.png",
+                    "path": str(paths["1"]),
+                    "sha256": "1" * 64,
                 }
-                for image_id in ("1", "2")
+            ]
+            validation = [
+                {
+                    "image_id": "2",
+                    "file_name": "2.png",
+                    "path": str(paths["2"]),
+                    "sha256": "2" * 64,
+                }
             ]
             test = [
                 {
@@ -326,7 +571,7 @@ class PhaseOneTests(unittest.TestCase):
             for name, rows in (
                 ("knowledge_base", knowledge_base),
                 ("train", knowledge_base[:1]),
-                ("validation", knowledge_base[1:]),
+                ("validation", validation),
                 ("test", test),
             ):
                 with (split_root / f"{name}.csv").open(

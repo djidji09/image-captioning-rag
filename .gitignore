@@ -1,0 +1,16 @@
+# COCO source data and generated pipeline artifacts
+data/
+reports/
+01_splits/
+releases/
+*.npz
+*.faiss
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Notebook runtime state
+.ipynb_checkpoints/

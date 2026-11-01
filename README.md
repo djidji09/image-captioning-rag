@@ -1,122 +1,156 @@
-# RAG techniques for generating image captions
+# Image Captioning RAG — Phase One
 
-Phase One dataset exploration and preparation tools for the MS-COCO image
-captioning project. The scripts do not download datasets. They audit the local
-COCO images and annotations, create reproducible splits, preprocess images and
-captions, generate embeddings, build an exact cosine index, and report quality
-checks.
+Reproducible MS-COCO 2017 dataset auditing and preparation. The CLI is the
+source of truth; notebooks and reports call or describe these commands rather
+than reimplementing pipeline logic. Source images and annotations are never
+modified. Generated data, vectors, indexes, and reports are ignored by Git.
 
-## Setup
+## Environment and configuration
 
-From the project root:
+Use Python 3.10 or later. Install the core image and analysis dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
+```
+
+For CLIP image/text embeddings and Sentence-BERT captions:
+
+```powershell
 python -m pip install -r requirements-embeddings.txt
 ```
 
-For part-of-speech statistics, install the optional analysis dependency and
-English model:
+For FAISS indexes, install `requirements-faiss.txt` where a compatible
+`faiss-cpu` wheel is available. POS analysis is optional:
 
 ```powershell
 python -m pip install -r requirements-analysis.txt
 python -m spacy download en_core_web_sm
 ```
 
-## Phase One workflow
+Edit [`configs/phase1.yaml`](configs/phase1.yaml) for dataset paths and counts.
+The checked-in file is JSON-formatted YAML, so the default configuration also
+works without an external YAML parser. Paths are relative to the repository
+root; command-line values override the config.
 
-Update the paths for your COCO download and subset. `instances` annotations
-provide image/category/object information; `captions` annotations provide
-human-written captions.
+The supplied local COCO layout is configured as a sibling of this repository:
+
+```text
+../train2017/train2017
+../val2017/val2017
+../annotations_trainval2017/annotations/
+```
+
+Change those paths for other Windows, Linux, Colab, or Kaggle layouts.
+
+## Dataset policy
+
+Defaults are seed `42`, a random 10,500-image train2017 candidate pool, 10,000
+knowledge-base images, a separate 100-image train2017 validation set, and 100
+COCO val2017 test images. The project PDF contains a 100-versus-1,000 test-size
+discrepancy; 100 is the agreed default and counts are configurable.
+
+Knowledge base, validation, and test IDs and SHA-256 contents must be pairwise
+disjoint. The test selection is drawn from `instances_val2017.json`, matched to
+`captions_val2017.json` and the val2017 directory—not an arbitrary folder.
+Original caption strings are retained in independent split files. Five
+references per image are expected; extra or missing captions are reported,
+not deleted or fabricated.
+
+## Run the selection and split stages
+
+From the repository root, first audit the source annotations and image
+directory, then select and validate the deterministic candidate pool:
+
+```powershell
+python scripts\phase1.py audit
+python scripts\phase1.py select
+```
+
+Freeze the train/validation/test assignment using the COCO sources in the
+configuration:
+
+```powershell
+python scripts\phase1.py split
+```
+
+This writes `01_splits/splits_v2.json`, per-split image and caption CSVs, and a
+reserve manifest. It also writes `near_duplicate_review.csv` with cross-split
+difference-hash matches at the configured similarity threshold. Review each
+flagged pair and change its `review_status` from `pending` to `accepted` or
+`rejected`; exact SHA-256 duplicates block freezing, while perceptual matches
+are surfaced for human review. Frozen splits are not overwritten on rerun. To explicitly
+create a new version, use:
+
+```powershell
+python scripts\phase1.py split --force-new-splits
+```
+
+The previous manifest and CSV files are archived under `01_splits/history/`.
+To use a different config, pass `--config path/to/phase1.yaml`; individual CLI
+options override configured values.
+
+## Further Phase One stages
+
+For KB-only EDA, point the command at the frozen KB manifest:
 
 ```powershell
 python scripts\phase1.py explore `
-  --instances data\annotations\instances_train2017.json `
-  --captions data\annotations\captions_train2017.json `
-  --spacy-model en_core_web_sm `
-  --output reports\exploration
-
-python scripts\phase1.py clean `
-  --images data\train2017 `
-  --instances data\annotations\instances_train2017.json `
-  --captions data\annotations\captions_train2017.json `
-  --output reports\cleaning
-
-python scripts\phase1.py split `
-  --manifest reports\cleaning\clean_manifest.csv `
-  --test-images data\external_test `
-  --output reports\splits
-
-python scripts\phase1.py preprocess `
-  --splits reports\splits `
-  --instances data\annotations\instances_train2017.json `
-  --test-instances data\annotations\instances_val2017.json `
-  --captions data\annotations\captions_train2017.json `
-  --validation-captions data\annotations\captions_train2017.json `
-  --test-captions data\annotations\captions_val2017.json `
-  --output reports\prepared
-
-python scripts\phase1.py embed `
-  --manifest reports\prepared\train.csv `
-  --captions reports\prepared\train_captions.csv `
-  --output reports\embeddings\train_clip.npz
-
-python scripts\phase1.py build-index `
-  --embeddings reports\embeddings\train_clip.npz `
-  --metadata reports\prepared\metadata.json `
-  --output reports\index\train_flat.npz
-
-python scripts\phase1.py quality-check `
-  --manifest reports\prepared\train.csv `
-  --embeddings reports\embeddings\train_clip.npz `
-  --captions reports\prepared\train_captions.csv `
-  --splits reports\splits `
-  --metadata reports\prepared\metadata.json `
-  --output reports\quality\train.json
+  --instances ..\annotations_trainval2017\annotations\instances_train2017.json `
+  --captions ..\annotations_trainval2017\annotations\captions_train2017.json `
+  --manifest 01_splits\knowledge_base_manifest.csv `
+  --output reports\phase1\exploration
 ```
 
-`explore` writes dataset summaries, top-50 object classes, object
-co-occurrence, available relationship/attribute/context distributions,
-caption vocabulary and histograms. POS statistics are produced when
-`--spacy-model` is supplied.
+Optional POS tagging requires the spaCy install/model above. COCO supplies
+object categories and boxes, not semantic relationships or color/scene labels.
+EDA labels category co-occurrence as annotation-derived and color/context
+mentions as caption-derived, not as verified visual properties. Scene
+complexity is reported as an object-count proxy.
 
-`clean` validates image files, removes exact byte duplicates from the clean
-manifest (retaining the first image ID), records missing/corrupt/duplicate
-files, and optionally audits the expected five captions per image. It never
-deletes source files. Caption-count mismatches are documented rather than
-silently discarded.
+Use the frozen manifests with `preprocess`, `embed`, `build-index`,
+`build-faiss-index`, `encode-query`, `retrieve`, and `quality-check` as shown by
+each command's `--help`. Preprocessing corrects EXIF orientation, converts to
+RGB, preserves aspect ratio, and records dimensions. Encoder-specific image
+normalization belongs to the encoder processor.
 
-`split` defaults to 10,000 clean knowledge-base images, a reproducible
-100-image validation subset, and 100 external test images (seed 42). The PDF's
-dataset section says 100 test images, while its preprocessing checklist says
-1,000; this workflow uses 100 as selected for this project. Override
-`--test-count` if the agreed subset changes. `validation.csv` is a subset of
-the 10,000-image knowledge base; `train.csv` excludes validation to prevent
-self-retrieval. Test IDs and content are checked for overlap. Versioned
-`split_ids.json` and `splits.json` record the split membership and leakage
-audit.
+`embed --encoder clip` creates CLIP image/text vectors; `embed --encoder sbert`
+creates Sentence-BERT caption vectors. `build-index` writes a local exact
+cosine NPZ artifact. With compatible model packages and weights installed,
+`build-faiss-index` creates independent CLIP-image, CLIP-caption, and
+Sentence-BERT-caption FAISS indexes. `encode-query` produces vectors in the
+matching space, and `retrieve` queries a selected index with optional
+same-image exclusions. These model-backed stages have not been run as part of
+the dependency-free synthetic tests; install the optional dependencies and
+models before relying on real-data retrieval.
 
-`preprocess` writes EXIF-corrected RGB images, preserving aspect ratio, split
-manifests, separate train/validation/test caption files, object and available
-attribute/relation/context metadata, and a preprocessing report. Raw caption
-text is retained unchanged; only the retrieval field is lowercased and
-whitespace-normalized. Validation and test references are kept out of the
-training caption file. Encoder-specific resizing and normalization are applied
-by the selected encoder processor.
-
-`embed` writes normalized CLIP image and text vectors, paired image/caption
-IDs, raw and cleaned captions, and model, dimension, batch-size, device, and
-version metadata. It accepts a COCO captions JSON or prepared caption CSV.
-The default model is `openai/clip-vit-base-patch32`; Transformers downloads its
-weights on first use.
-
-`build-index` creates a reproducible exact flat cosine index containing image
-and text vectors linked to image IDs, captions, and metadata. `quality-check`
-checks duplicate IDs, missing/unexpected embeddings, non-finite or
-unnormalized vectors, caption mismatches, metadata coverage, and split leakage.
-
-Run the tests from the project root:
+After running the available stages, record their provenance and execution
+status with:
 
 ```powershell
-python -m unittest discover -s tests
+python scripts\phase1.py release-manifest
+```
+
+The generated release manifest stays marked **incomplete** until embedding,
+FAISS indexing, retrieval validation, and their quality checks have actually
+been executed.
+
+Run the dataset-only quality checks after preprocessing (this works without
+model dependencies):
+
+```powershell
+python scripts\phase1.py quality-check `
+  --splits 01_splits `
+  --preprocessed reports\phase1\preprocessed `
+  --output reports\phase1\quality_control\dataset_quality_report.json
+```
+
+See [REPORT.md](REPORT.md) for the real-data counts, verified checks, and
+remaining unexecuted stages.
+
+## Tests
+
+The synthetic unit and integration suite does not download COCO:
+
+```powershell
+python -m unittest discover -s tests -v
 ```

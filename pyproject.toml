@@ -1,0 +1,9 @@
+[project]
+name = "image-captioning-rag-phase1"
+version = "0.2.0"
+description = "Reproducible MS-COCO image-captioning dataset preparation tools"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"

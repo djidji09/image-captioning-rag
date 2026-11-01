@@ -1,0 +1,325 @@
+{
+  "version": "0.2",
+  "created_at": "2026-11-01T21:15:30.037203+00:00",
+  "git_commit": "337ed741ac071f5bf085d62fec616cf182bdd9a5",
+  "git_worktree_dirty": true,
+  "configuration": {
+    "path": "configs\\phase1.yaml",
+    "sha256": "78a5a8eb12b81b8b12846e2db931d2ff82512db16e0aee20fde6aa2b71fb11d7"
+  },
+  "split_manifest": {
+    "path": "01_splits\\splits_v2.json",
+    "version": 2,
+    "sha256": "650558cd0d060e0ee0b5c0394def01b8a4ef85c4156ed5aec5f8449c5fbbf4bf"
+  },
+  "dataset_counts": {
+    "candidate_pool": 10500,
+    "knowledge_base_images": 10000,
+    "validation_images": 100,
+    "test_images": 100,
+    "reserve_images": 400,
+    "knowledge_base_captions": 50025,
+    "validation_captions": 500,
+    "test_captions": 500
+  },
+  "models": {
+    "clip": {
+      "name": "openai/clip-vit-base-patch32",
+      "version": null,
+      "dimension": 512,
+      "executed": false
+    },
+    "sentence_bert": {
+      "name": "sentence-transformers/all-MiniLM-L6-v2",
+      "version": null,
+      "dimension": 384,
+      "executed": false
+    }
+  },
+  "indexes": {
+    "configured_faiss_type": "IndexFlatIP",
+    "built": false,
+    "vector_counts": null
+  },
+  "quality_control": {
+    "split_leakage_audit": {
+      "knowledge_base_validation_ids_disjoint": true,
+      "knowledge_base_test_ids_disjoint": true,
+      "validation_test_ids_disjoint": true,
+      "knowledge_base_validation_hashes_disjoint": true,
+      "knowledge_base_test_hashes_disjoint": true,
+      "validation_test_hashes_disjoint": true,
+      "exact_duplicate_image_ids_by_split": {
+        "knowledge_base_validation": [],
+        "knowledge_base_test": [],
+        "validation_test": []
+      },
+      "near_duplicate_review_pending_count": 0,
+      "near_duplicate_similarity_threshold": 0.95
+    },
+    "caption_integrity": {
+      "knowledge_base_missing_captions": [],
+      "validation_missing_captions": [],
+      "test_missing_captions": [],
+      "test_caption_count_mismatches": [],
+      "expected_test_reference_count": 500,
+      "actual_test_reference_count": 500
+    },
+    "status": "partial",
+    "preprocessing_metadata_present": true,
+    "embedding_and_index_checks": "not executed"
+  },
+  "status": {
+    "complete": false,
+    "state": "incomplete",
+    "completed": [
+      "COCO source audit",
+      "candidate-pool selection and file validation",
+      "versioned disjoint split creation",
+      "caption-reference validation",
+      "cross-split exact and perceptual duplicate checks",
+      "knowledge-base exploratory analysis",
+      "RGB/EXIF image preprocessing"
+    ],
+    "not_executed": [
+      "CLIP and Sentence-BERT embedding generation",
+      "FAISS index construction",
+      "end-to-end retrieval validation",
+      "embedding and index quality checks",
+      "semantic retrieval evaluation"
+    ],
+    "optional_not_supported_by_source": [
+      "Verified scene labels, visual attributes, and semantic spatial relations are not supplied by standard COCO annotations."
+    ]
+  },
+  "artifacts": {
+    "01_splits\\knowledge_base.csv": {
+      "sha256": "03b1c06f72cac7543ae8e5187fab49ad9a06c702ded09d85ad17bd939a45946d",
+      "size_bytes": 2468254
+    },
+    "01_splits\\knowledge_base_captions.csv": {
+      "sha256": "d41ea2ee1af1c292a2f26ce28e8d7d47cc16f1a2e0a4017efed102630fe4afef",
+      "size_bytes": 6844878
+    },
+    "01_splits\\knowledge_base_manifest.csv": {
+      "sha256": "03b1c06f72cac7543ae8e5187fab49ad9a06c702ded09d85ad17bd939a45946d",
+      "size_bytes": 2468254
+    },
+    "01_splits\\near_duplicate_review.csv": {
+      "sha256": "d9ae2d02d7cee53ba911bbb5352d6ff0dafc92867e9dfbd7110e1614ee6dcf1d",
+      "size_bytes": 94
+    },
+    "01_splits\\reserve_manifest.csv": {
+      "sha256": "0698564f475a56e6b5389b63e16ffa6bd40415827063a4cdc0231ff4213a9b70",
+      "size_bytes": 96071
+    },
+    "01_splits\\splits_v2.json": {
+      "sha256": "650558cd0d060e0ee0b5c0394def01b8a4ef85c4156ed5aec5f8449c5fbbf4bf",
+      "size_bytes": 8011
+    },
+    "01_splits\\test.csv": {
+      "sha256": "f7838b7fc9ea6bc58e108a556534d03b313d7eb1d20258590b167d201dbb0e35",
+      "size_bytes": 22922
+    },
+    "01_splits\\test_captions.csv": {
+      "sha256": "a5ca53832ec177aff5b25857d195b061a7b8819592afe561746e8c3cf3eefbe1",
+      "size_bytes": 63937
+    },
+    "01_splits\\test_manifest.csv": {
+      "sha256": "f7838b7fc9ea6bc58e108a556534d03b313d7eb1d20258590b167d201dbb0e35",
+      "size_bytes": 22922
+    },
+    "01_splits\\train.csv": {
+      "sha256": "03b1c06f72cac7543ae8e5187fab49ad9a06c702ded09d85ad17bd939a45946d",
+      "size_bytes": 2468254
+    },
+    "01_splits\\train_captions.csv": {
+      "sha256": "d41ea2ee1af1c292a2f26ce28e8d7d47cc16f1a2e0a4017efed102630fe4afef",
+      "size_bytes": 6844878
+    },
+    "01_splits\\validation.csv": {
+      "sha256": "b405904606e5ce86d733ec7e88d5bca51c384ffdbbebe5f11fd606dea23d0c24",
+      "size_bytes": 24424
+    },
+    "01_splits\\validation_captions.csv": {
+      "sha256": "68376eb83c27b439db9799381c25af4bab3d4e7b7947f82ed8ac2b559a509464",
+      "size_bytes": 66062
+    },
+    "01_splits\\validation_manifest.csv": {
+      "sha256": "b405904606e5ce86d733ec7e88d5bca51c384ffdbbebe5f11fd606dea23d0c24",
+      "size_bytes": 24424
+    },
+    "README.md": {
+      "sha256": "ba7adbc85a242f58227f63eeae8f663685bb7496f4e5b5bafa560978d5247c18",
+      "size_bytes": 6074
+    },
+    "REPORT.md": {
+      "sha256": "2d404c105a8467bfb8d12676a5c8c991e941774c3d4d68c7d270c6af569dc3bb",
+      "size_bytes": 5510
+    },
+    "reports\\phase1\\candidates\\candidate_audit.json": {
+      "sha256": "f2ea34a4cc568b23870dbd256311ede261e2b638f88bf4bc6fa5f1816320e0dc",
+      "size_bytes": 2230
+    },
+    "reports\\phase1\\candidates\\candidate_manifest.csv": {
+      "sha256": "0fc317d6c2041fec735ab76264f3a639df45a60c1c725488d28128e6d1f8e4b4",
+      "size_bytes": 2518194
+    },
+    "reports\\phase1\\dataset_audit.json": {
+      "sha256": "bf51e700b1549a550fb479232c9f585fe76e29a6a8e351b5f03696b6a375409b",
+      "size_bytes": 602
+    },
+    "reports\\phase1\\exploration\\analysis_availability.json": {
+      "sha256": "26b9b3c54868420e3e18d03044f1eebc8cb036c611026da2a456e26fa1ac46b3",
+      "size_bytes": 495
+    },
+    "reports\\phase1\\exploration\\attributes.csv": {
+      "sha256": "f5d72f9315ffc97f0379b07a57f94933db77c36424e5c74eb4a0483282d73f28",
+      "size_bytes": 17
+    },
+    "reports\\phase1\\exploration\\caption_color_mentions.csv": {
+      "sha256": "3362463e30d6ae487077625fc895a2acd32fa6907f7ffacccf09a67a71805a17",
+      "size_bytes": 154
+    },
+    "reports\\phase1\\exploration\\caption_color_mentions.png": {
+      "sha256": "2fb9a887ef1123dd7ebc4ff0425b7f64fd3294e5757efc070add99927255fa68",
+      "size_bytes": 55886
+    },
+    "reports\\phase1\\exploration\\caption_context_mentions.csv": {
+      "sha256": "0df8a81f53dff6317ab29cd3b0a4b05134b241e8e252513362dd454bb967c37d",
+      "size_bytes": 205
+    },
+    "reports\\phase1\\exploration\\caption_context_mentions.png": {
+      "sha256": "25601b64138484b44e07b0b9178699a6caa6296d98792e8c4f1c9c0cc098d3ad",
+      "size_bytes": 64320
+    },
+    "reports\\phase1\\exploration\\caption_lengths.png": {
+      "sha256": "0d689e37ec51c2053b50c9dab351c78cac2727ef91b1ed93c25a6ed10ce786e8",
+      "size_bytes": 13072
+    },
+    "reports\\phase1\\exploration\\caption_vocabulary.csv": {
+      "sha256": "43ebaaf61a42ec17f2c449c10c8ec9f39ca48d5b303c9f7d984bdc77b8377597",
+      "size_bytes": 110370
+    },
+    "reports\\phase1\\exploration\\caption_vocabulary_frequency.png": {
+      "sha256": "37296f6eca7313b62bd3fb13d9d5b1b3c0c6db2ebbf7bcd594d71261aa377dc1",
+      "size_bytes": 75596
+    },
+    "reports\\phase1\\exploration\\captions_per_image.png": {
+      "sha256": "48e46603e19173d4e65d2b351499390d753e5e74e4df7af8c0cfa4130d29fd28",
+      "size_bytes": 13926
+    },
+    "reports\\phase1\\exploration\\categories.csv": {
+      "sha256": "d2a4c559aec3e91d967d8a62dd7752e7223fc48b8e0a814ed903df90c9d78bd4",
+      "size_bytes": 1382
+    },
+    "reports\\phase1\\exploration\\context_diversity.csv": {
+      "sha256": "a971ad8a24e18dd0e4c3bbf58a04b15273f328d7fb08f50237e6524203d1d3f7",
+      "size_bytes": 15
+    },
+    "reports\\phase1\\exploration\\image_statistics.csv": {
+      "sha256": "ae878669d8630a9d306128e5a080f4159cfb9b4845a069b17522d6d8b0ea74df",
+      "size_bytes": 367497
+    },
+    "reports\\phase1\\exploration\\object_cooccurrence.csv": {
+      "sha256": "17bb52c18bfa8503992c859ce32e15a23447a72315e8e793934639dee850a932",
+      "size_bytes": 9393
+    },
+    "reports\\phase1\\exploration\\object_cooccurrence_heatmap.png": {
+      "sha256": "1fbd9a43d26674d4a172cebad384312df513b3d2f50a29166c77920dcab340a3",
+      "size_bytes": 146834
+    },
+    "reports\\phase1\\exploration\\objects_per_image.png": {
+      "sha256": "a15747110c45138c7d3e0d8bbf901e3e5500b8fc3eb1435e9d936e5238dd9d22",
+      "size_bytes": 16272
+    },
+    "reports\\phase1\\exploration\\objects_vs_caption_length.png": {
+      "sha256": "dc2d3f439fc07929ce63ff8ca1ad546e3ae68fb0e62e32de451a7bba52550657",
+      "size_bytes": 171954
+    },
+    "reports\\phase1\\exploration\\pos_distribution.csv": {
+      "sha256": "a0bb57463d94eb4bc2963169abeacf99e82577f17b69c04c9207fc976f990dc1",
+      "size_bytes": 22
+    },
+    "reports\\phase1\\exploration\\scene_complexity.csv": {
+      "sha256": "19b05d0d249613efa3c83185199d0e67269f2438f6e6f4d3ae05b6ad19fa99e7",
+      "size_bytes": 68
+    },
+    "reports\\phase1\\exploration\\scene_complexity.png": {
+      "sha256": "52b8fd3f4ec610d23472e6f1cdc0bc499a472f3c47b97d5caecd4cf57e0b5ae3",
+      "size_bytes": 42527
+    },
+    "reports\\phase1\\exploration\\spatial_relations.csv": {
+      "sha256": "4dcb71f6a5900fc6c05c7683dfbcd50c554f265b2d8969f20bcb75e72dfccd70",
+      "size_bytes": 16
+    },
+    "reports\\phase1\\exploration\\summary.json": {
+      "sha256": "cc6d97f0652cc01b2341272c3592969035f211ad02861f0ca290be89e7eea5a9",
+      "size_bytes": 920
+    },
+    "reports\\phase1\\exploration\\text_statistics.json": {
+      "sha256": "ee73450da2b6f3bafb612f291c0cc129bf62fa48740b24d883cd8b764f2064f6",
+      "size_bytes": 702
+    },
+    "reports\\phase1\\exploration\\top_50_object_categories.png": {
+      "sha256": "9defccf986f306f6480fcd74cf10c1e3b887e6eae0f8352ded72b066e7bab73e",
+      "size_bytes": 138307
+    },
+    "reports\\phase1\\exploration\\top_categories.csv": {
+      "sha256": "77c6c52726761d42c404e6cc3c1bc89e5a73ddbc78541a9b8f54f1fe5390eb05",
+      "size_bytes": 853
+    },
+    "reports\\phase1\\preprocessed\\knowledge_base.csv": {
+      "sha256": "dace13d98f96098e48a3f7faa4556efa0870ce3e5dc000baed677f0ffa7603b0",
+      "size_bytes": 3036401
+    },
+    "reports\\phase1\\preprocessed\\knowledge_base_captions.csv": {
+      "sha256": "6f1ccfa77805fa717dc11b291a1c30cf1a83b311453c438be13401c8fb35f339",
+      "size_bytes": 6094497
+    },
+    "reports\\phase1\\preprocessed\\metadata.csv": {
+      "sha256": "bedadb7472d6c425dacf05c1380fddb3109009148a247ad54964754ee2892329",
+      "size_bytes": 49713104
+    },
+    "reports\\phase1\\preprocessed\\metadata.json": {
+      "sha256": "8a1eb53d3d2ef19e0e0b05472c031ea8cf95aa6f724a81d0c174aa2f8709e65f",
+      "size_bytes": 121875537
+    },
+    "reports\\phase1\\preprocessed\\preprocessing_report.json": {
+      "sha256": "a58e5f9350dc25e9ebaf4e45497b2c1b53148d20e38ea567be0e247d7fc0c0fd",
+      "size_bytes": 3139
+    },
+    "reports\\phase1\\preprocessed\\test.csv": {
+      "sha256": "cd617f60d872e9538dc2ab6b33c7846f35ab83db08b4c338774dd4bddd54c1a0",
+      "size_bytes": 29037
+    },
+    "reports\\phase1\\preprocessed\\test_captions.csv": {
+      "sha256": "c917ee20faa8ba0f50721478769679e82ec2e9d6351121b6cf394e22a503ba68",
+      "size_bytes": 61431
+    },
+    "reports\\phase1\\preprocessed\\train.csv": {
+      "sha256": "dace13d98f96098e48a3f7faa4556efa0870ce3e5dc000baed677f0ffa7603b0",
+      "size_bytes": 3036401
+    },
+    "reports\\phase1\\preprocessed\\train_captions.csv": {
+      "sha256": "6f1ccfa77805fa717dc11b291a1c30cf1a83b311453c438be13401c8fb35f339",
+      "size_bytes": 6094497
+    },
+    "reports\\phase1\\preprocessed\\validation.csv": {
+      "sha256": "03b61c1be8eb74371724468275018c9a9d3c8bab7414bb11c06342b54fab21b3",
+      "size_bytes": 30141
+    },
+    "reports\\phase1\\preprocessed\\validation_captions.csv": {
+      "sha256": "ef38eeba32f81738c5504573ceb8c3ef545080311a4e7db6de83f1004043c077",
+      "size_bytes": 60556
+    },
+    "reports\\phase1\\quality_control\\dataset_quality_report.json": {
+      "sha256": "714fa81cf7271c5154e7e89468f119920206efc4f06d8500a4c79a04fb1cf4f7",
+      "size_bytes": 663
+    },
+    "scripts\\phase1.py": {
+      "sha256": "c21f38feeadb42cb75de826ad97e2fb0b8fde93308caef8bdfff712295fc7d5c",
+      "size_bytes": 141209
+    }
+  }
+}
