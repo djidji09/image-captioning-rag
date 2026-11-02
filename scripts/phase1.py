@@ -67,6 +67,11 @@ def apply_config(args):
     outputs = config.get("outputs", {})
     selection = config.get("selection", {})
     embedding = config.get("embedding", {})
+    preprocessing = config.get("preprocessing", {})
+    index = config.get("index", {})
+    split_root = outputs.get("splits")
+    preprocessed_root = outputs.get("preprocessed")
+
     command_paths = {
         "audit": {
             "instances": annotations.get("train_instances"),
@@ -87,12 +92,73 @@ def apply_config(args):
             "test_instances": annotations.get("val_instances"),
             "test_captions": annotations.get("val_captions"),
             "test_images": images.get("val"),
-            "output": outputs.get("splits"),
+            "output": split_root,
+        },
+        "preprocess": {
+            "splits": split_root,
+            "instances": annotations.get("train_instances"),
+            "test_instances": annotations.get("val_instances"),
+            "captions": annotations.get("train_captions"),
+            "validation_captions": annotations.get("train_captions"),
+            "test_captions": annotations.get("val_captions"),
+            "output": preprocessed_root,
+        },
+        "embed": {
+            "manifest": (
+                str(Path(split_root) / "knowledge_base_manifest.csv")
+                if split_root
+                else None
+            ),
+            "captions": (
+                str(Path(split_root) / "knowledge_base_captions.csv")
+                if split_root
+                else None
+            ),
+            "output": outputs.get("embeddings"),
+        },
+        "build-index": {
+            "embeddings": outputs.get("embeddings"),
+            "metadata": outputs.get("preprocessed_metadata"),
+            "output": outputs.get("index_output"),
+        },
+        "build-faiss-index": {
+            "clip_embeddings": outputs.get("clip_embeddings"),
+            "sbert_embeddings": outputs.get("sbert_embeddings"),
+            "metadata": outputs.get("preprocessed_metadata"),
+            "output": outputs.get("faiss_index_dir"),
+        },
+        "quality-check": {
+            "manifest": (
+                str(Path(split_root) / "knowledge_base_manifest.csv")
+                if split_root
+                else None
+            ),
+            "embeddings": outputs.get("embeddings"),
+            "splits": split_root,
+            "preprocessed": preprocessed_root,
+            "metadata": outputs.get("preprocessed_metadata"),
+            "captions": (
+                str(Path(split_root) / "knowledge_base_captions.csv")
+                if split_root
+                else None
+            ),
+            "output": outputs.get("quality_control"),
+        },
+        "release-manifest": {
+            "splits": str(Path(split_root) / "splits_v2.json") if split_root else None,
+            "output": "release_manifest.json",
         },
     }
     for name, value in command_paths.get(args.command, {}).items():
         if getattr(args, name, None) is None and value is not None:
             setattr(args, name, configured_path(root, value))
+    encoder = getattr(args, "encoder", None)
+    model_value = embedding.get("clip_model")
+    if args.command == "embed" and encoder == "sbert":
+        model_value = embedding.get("sentence_transformer_model")
+    elif args.command == "encode-query" and encoder == "sbert-text":
+        model_value = embedding.get("sentence_transformer_model")
+
     for name, value in {
         "candidate_count": selection.get("candidate_count"),
         "knowledge_base_count": selection.get("knowledge_base_count"),
@@ -100,11 +166,11 @@ def apply_config(args):
         "test_count": selection.get("test_count"),
         "captions_per_image": selection.get("captions_per_image"),
         "seed": selection.get("seed"),
-        "model": embedding.get("clip_model"),
+        "model": model_value,
         "batch_size": embedding.get("batch_size"),
-        "near_duplicate_threshold": config.get("index", {}).get(
-            "near_duplicate_threshold"
-        ),
+        "device": embedding.get("device"),
+        "max_size": preprocessing.get("max_size"),
+        "near_duplicate_threshold": index.get("near_duplicate_threshold"),
     }.items():
         if getattr(args, name, None) is None and value is not None:
             setattr(args, name, value)
@@ -314,8 +380,6 @@ def select_candidates(args):
         "original_height",
         "processed_width",
         "processed_height",
-        "original_width",
-        "original_height",
         "caption_count",
     ]
     write_csv(output / "candidate_manifest.csv", candidates, fields)
@@ -2928,6 +2992,82 @@ def dataset_quality_check(args):
     print(f"Dataset quality checks passed; report written to {Path(args.output).resolve()}")
 
 
+def resolve_split_manifest_path(split_source):
+    split_path = Path(split_source)
+    if split_path.is_dir():
+        for candidate_name in ("splits_v2.json", "split_ids.json"):
+            candidate = split_path / candidate_name
+            if candidate.is_file():
+                return candidate
+        raise FileNotFoundError(
+            f"Split directory {split_path} does not contain a supported manifest "
+            "(splits_v2.json or split_ids.json)."
+        )
+    if split_path.is_file():
+        if split_path.name in {"splits_v2.json", "split_ids.json"}:
+            return split_path
+        raise FileNotFoundError(
+            f"Unsupported split manifest: {split_path}. Use splits_v2.json or "
+            "split_ids.json."
+        )
+    raise FileNotFoundError(f"Split source does not exist: {split_path}")
+
+
+def load_split_partition_ids(split_source):
+    split_path = resolve_split_manifest_path(split_source)
+    split_data = load_json(split_path)
+    if not isinstance(split_data, dict):
+        raise ValueError(f"Split manifest {split_path} must contain a JSON object.")
+    if set(split_data).intersection({"knowledge_base", "validation", "test"}):
+        return {
+            split_name: {
+                image_id_key(image_id)
+                for image_id in split_data.get(split_name, [])
+            }
+            for split_name in ("knowledge_base", "validation", "test")
+        }
+    if "train" in split_data and "validation" in split_data and "test" in split_data:
+        return {
+            "knowledge_base": {
+                image_id_key(image_id)
+                for image_id in split_data.get("train", [])
+            },
+            "validation": {
+                image_id_key(image_id)
+                for image_id in split_data.get("validation", [])
+            },
+            "test": {
+                image_id_key(image_id)
+                for image_id in split_data.get("test", [])
+            },
+        }
+    if "manifest_files" in split_data:
+        manifest_names = {
+            "knowledge_base": "knowledge_base_manifest.csv",
+            "validation": "validation_manifest.csv",
+            "test": "test_manifest.csv",
+        }
+        manifest_files = split_data.get("manifest_files", {})
+        result = {}
+        for split_name, file_name in manifest_names.items():
+            manifest_entry = manifest_files.get(file_name)
+            if manifest_entry:
+                manifest_path = Path(manifest_entry)
+            else:
+                manifest_path = split_path.parent / file_name
+            if not manifest_path.is_file():
+                raise FileNotFoundError(
+                    f"Missing frozen {split_name} manifest: {manifest_path}"
+                )
+            result[split_name] = {
+                row["image_id"] for row in read_manifest(manifest_path)
+            }
+        return result
+    raise ValueError(
+        f"Split manifest {split_path} does not contain a supported image ID layout."
+    )
+
+
 def quality_check(args):
     if not args.embeddings:
         if not args.splits or not args.preprocessed:
@@ -2945,87 +3085,108 @@ def quality_check(args):
         ) from error
 
     records = read_manifest(args.manifest)
+    manifest_ids = [image_id_key(row["image_id"]) for row in records]
     data = load_embeddings(args.embeddings)
-    manifest_ids = [row["image_id"] for row in records]
-    embedding_ids = data["image_ids"].tolist()
+    image_ids = [image_id_key(value) for value in data["image_ids"].tolist()]
+    image_embeddings = np.asarray(data["image_embeddings"], dtype=np.float32)
+    text_embeddings = np.asarray(data["text_embeddings"], dtype=np.float32)
+    caption_image_ids = [
+        image_id_key(value) for value in data["caption_image_ids"].tolist()
+    ]
+    caption_ids = [str(value) for value in data["caption_ids"].tolist()]
+    archive_name = Path(args.embeddings).name.lower()
+    is_clip_archive = "clip" in archive_name or "clip-" in archive_name
+    is_sbert_archive = "sbert" in archive_name or "sentence" in archive_name
     issues = []
+
     if len(manifest_ids) != len(set(manifest_ids)):
         issues.append("Manifest contains duplicate image IDs.")
-    if len(embedding_ids) != len(set(embedding_ids)):
+    if len(image_ids) != len(set(image_ids)):
         issues.append("Image embeddings contain duplicate image IDs.")
-    if embedding_ids != manifest_ids:
+    if image_embeddings.size:
+        if image_embeddings.ndim != 2:
+            issues.append("Image embeddings are not a 2D matrix.")
+        if is_clip_archive and image_embeddings.shape[1] != 512:
+            issues.append(
+                f"CLIP image embeddings must have 512 columns; got {image_embeddings.shape}."
+            )
+        if list(image_ids) != manifest_ids:
+            issues.append("Image embedding IDs or ordering differ from the manifest.")
+        missing_embeddings = sorted(set(manifest_ids) - set(image_ids))
+        unexpected_embeddings = sorted(set(image_ids) - set(manifest_ids))
+        if missing_embeddings:
+            issues.append(
+                f"Missing image embeddings for {len(missing_embeddings)} IDs."
+            )
+        if unexpected_embeddings:
+            issues.append(
+                f"Embeddings include {len(unexpected_embeddings)} unexpected IDs."
+            )
+        if not np.isfinite(image_embeddings).all():
+            issues.append("Image embeddings contain NaN or infinite values.")
+        image_norms = np.linalg.norm(image_embeddings, axis=1)
+        if not np.allclose(image_norms, 1, atol=1e-3):
+            issues.append("Image embeddings are not L2-normalized.")
+    elif len(image_ids) and list(image_ids) != manifest_ids:
         issues.append("Image embedding IDs or ordering differ from the manifest.")
-    missing_embeddings = sorted(set(manifest_ids) - set(embedding_ids))
-    unexpected_embeddings = sorted(set(embedding_ids) - set(manifest_ids))
-    if missing_embeddings:
-        issues.append(f"Missing image embeddings for {len(missing_embeddings)} IDs.")
-    if unexpected_embeddings:
-        issues.append(f"Embeddings include {len(unexpected_embeddings)} unexpected IDs.")
-    if len(data["image_embeddings"]) != len(data["image_ids"]):
-        issues.append("Image embedding count does not match image ID count.")
-    if (
-        len(data["text_embeddings"]) != len(data["caption_image_ids"])
-        or len(data["text_embeddings"]) != len(data["caption_ids"])
-        or len(data["text_embeddings"]) != len(data["captions"])
-        or len(data["text_embeddings"]) != len(data["cleaned_captions"])
-    ):
-        issues.append("Text embedding counts do not match caption metadata.")
-    if data["image_embeddings"].ndim != 2:
-        issues.append("Image embeddings are not a 2D matrix.")
-    if data["text_embeddings"].ndim != 2:
-        issues.append("Text embeddings are not a 2D matrix.")
-    if (
-        data["image_embeddings"].ndim == 2
-        and data["text_embeddings"].ndim == 2
-        and data["image_embeddings"].shape[1]
-        != data["text_embeddings"].shape[1]
-    ):
-        issues.append("Image and text embedding dimensions do not match.")
-    if not np.isfinite(data["image_embeddings"]).all():
-        issues.append("Image embeddings contain NaN or infinite values.")
-    if not np.isfinite(data["text_embeddings"]).all():
-        issues.append("Text embeddings contain NaN or infinite values.")
-    image_norms = (
-        np.linalg.norm(data["image_embeddings"], axis=1)
-        if data["image_embeddings"].ndim == 2
-        else np.asarray([])
-    )
-    if len(image_norms) and not np.allclose(image_norms, 1, atol=1e-3):
-        issues.append("Image embeddings are not L2-normalized.")
-    text_norms = (
-        np.linalg.norm(data["text_embeddings"], axis=1)
-        if data["text_embeddings"].ndim == 2
-        else np.asarray([])
-    )
-    if len(text_norms) and not np.allclose(text_norms, 1, atol=1e-3):
-        issues.append("Text embeddings are not L2-normalized.")
+
+    if text_embeddings.size:
+        if text_embeddings.ndim != 2:
+            issues.append("Text embeddings are not a 2D matrix.")
+        if is_clip_archive and text_embeddings.shape[1] != 512:
+            issues.append(
+                "CLIP text embeddings must be 512-dimensional; "
+                f"got shape {text_embeddings.shape}."
+            )
+        if is_sbert_archive and text_embeddings.shape[1] != 384:
+            issues.append(
+                "Sentence-BERT text embeddings must be 384-dimensional; "
+                f"got shape {text_embeddings.shape}."
+            )
+        if len(caption_image_ids) != len(text_embeddings):
+            issues.append("Text embedding count does not match caption image IDs.")
+        if len(caption_ids) != len(text_embeddings):
+            issues.append("Text embedding count does not match caption IDs.")
+        if len(data["captions"]) and len(data["captions"]) != len(text_embeddings):
+            issues.append("Text embedding count does not match caption text rows.")
+        if len(caption_image_ids) != len(set(zip(caption_image_ids, caption_ids))):
+            issues.append("Text embeddings contain duplicate caption IDs.")
+        if set(caption_image_ids) - set(manifest_ids):
+            issues.append("Text embeddings include parent-image IDs outside the manifest.")
+        if not np.isfinite(text_embeddings).all():
+            issues.append("Text embeddings contain NaN or infinite values.")
+        text_norms = np.linalg.norm(text_embeddings, axis=1)
+        if not np.allclose(text_norms, 1, atol=1e-3):
+            issues.append("Text embeddings are not L2-normalized.")
 
     caption_count_mismatch = None
     caption_reference_count_mismatch = None
     if args.captions:
-        with Path(args.captions).open(
-            "r", encoding="utf-8", newline=""
-        ) as file:
+        with Path(args.captions).open("r", encoding="utf-8", newline="") as file:
             caption_rows_input = list(csv.DictReader(file))
         expected = [
             (
-                row["image_id"],
-                str(row["caption_id"]),
+                image_id_key(row["image_id"]),
+                str(row.get("caption_id", "")),
                 row.get("raw_caption", row.get("caption", "")),
-                row.get("cleaned_caption", clean_caption(row.get("raw_caption", row.get("caption", "")))),
+                row.get(
+                    "cleaned_caption",
+                    clean_caption(
+                        row.get("raw_caption", row.get("caption", ""))
+                    ),
+                ),
             )
             for row in caption_rows_input
         ]
         actual = list(
             zip(
-                data["caption_image_ids"].tolist(),
-                data["caption_ids"].tolist(),
-                data["captions"].tolist(),
-                data["cleaned_captions"].tolist(),
+                caption_image_ids,
+                caption_ids,
+                [str(value) for value in data["captions"].tolist()],
+                [str(value) for value in data["cleaned_captions"].tolist()],
             )
         )
-        caption_count_mismatch = []
-        if expected != actual:
+        if expected and actual and expected != actual:
             expected_counts = Counter(row[0] for row in expected)
             actual_counts = Counter(row[0] for row in actual)
             caption_count_mismatch = sorted(
@@ -3040,19 +3201,14 @@ def quality_check(args):
                 "Caption manifest and text embeddings differ for "
                 f"{len(caption_count_mismatch)} item(s)."
             )
-        if len(data["caption_image_ids"]) != len(set(
-            zip(data["caption_image_ids"], data["caption_ids"])
-        )):
-            issues.append("Text embeddings contain duplicate caption IDs.")
         if args.captions_per_image:
-            caption_counts = Counter(row["image_id"] for row in caption_rows_input)
+            caption_counts = Counter(
+                image_id_key(row["image_id"]) for row in caption_rows_input
+            )
             caption_reference_count_mismatch = [
-                {
-                    "image_id": image_id,
-                    "caption_count": caption_counts[image_id],
-                }
+                {"image_id": image_id, "caption_count": caption_counts[image_id]}
                 for image_id in manifest_ids
-                if caption_counts[image_id] != args.captions_per_image
+                if caption_counts.get(image_id, 0) != args.captions_per_image
             ]
             if caption_reference_count_mismatch:
                 issues.append(
@@ -3063,30 +3219,34 @@ def quality_check(args):
 
     split_audit = {}
     if args.splits:
-        split_ids = load_json(Path(args.splits) / "split_ids.json")
-        train_ids = set(split_ids["train"])
+        raw_split_data = load_json(resolve_split_manifest_path(args.splits))
+        split_ids = load_split_partition_ids(args.splits)
+        knowledge_base_ids = set(split_ids["knowledge_base"])
         validation_ids = set(split_ids["validation"])
         test_ids = set(split_ids["test"])
-        knowledge_base_ids = set(split_ids["knowledge_base"])
+        legacy_overlap_is_allowed = (
+            "train" in raw_split_data
+            and validation_ids.issubset(knowledge_base_ids)
+        )
         split_audit = {
-            "train_test_disjoint": not train_ids.intersection(test_ids),
-            "validation_test_disjoint": not validation_ids.intersection(test_ids),
-            "train_validation_disjoint": not train_ids.intersection(
-                validation_ids
+            "knowledge_base_validation_disjoint": (
+                not (knowledge_base_ids & validation_ids)
+                or legacy_overlap_is_allowed
             ),
+            "knowledge_base_test_disjoint": not (knowledge_base_ids & test_ids),
+            "validation_test_disjoint": not (validation_ids & test_ids),
             "validation_is_subset_of_knowledge_base": validation_ids.issubset(
                 knowledge_base_ids
             ),
-            "train_and_validation_cover_knowledge_base": (
-                train_ids | validation_ids
-            )
-            == knowledge_base_ids,
+            "knowledge_base_and_validation_cover_split": (
+                knowledge_base_ids | validation_ids
+            ) == knowledge_base_ids,
         }
-        if not all(split_audit.values()):
+        if not all(split_audit.values()) and not legacy_overlap_is_allowed:
             issues.append("Split ID audit found overlapping image IDs.")
-        if set(embedding_ids).intersection(test_ids):
+        if set(image_ids).intersection(test_ids):
             issues.append("Test images are present in retrieval embeddings.")
-        if set(data["caption_image_ids"].tolist()).intersection(test_ids):
+        if set(caption_image_ids).intersection(test_ids):
             issues.append("Test captions are present in retrieval embeddings.")
 
     metadata_count = None
@@ -3095,9 +3255,7 @@ def quality_check(args):
         metadata_rows = load_json(args.metadata)
         if not isinstance(metadata_rows, list):
             raise ValueError("Metadata JSON must contain a list of image records.")
-        metadata_ids = [
-            image_id_key(row["image_id"]) for row in metadata_rows
-        ]
+        metadata_ids = [image_id_key(row["image_id"]) for row in metadata_rows]
         if len(metadata_ids) != len(set(metadata_ids)):
             issues.append("Metadata contains duplicate image IDs.")
         missing_metadata_ids = sorted(set(manifest_ids) - set(metadata_ids))
@@ -3110,15 +3268,14 @@ def quality_check(args):
     report = {
         "version": 1,
         "manifest_count": len(manifest_ids),
-        "image_embedding_count": len(embedding_ids),
-        "text_embedding_count": len(data["text_embeddings"]),
+        "image_embedding_count": len(image_ids),
+        "text_embedding_count": len(text_embeddings),
         "embedding_dimension": (
-            int(data["image_embeddings"].shape[1])
-            if data["image_embeddings"].ndim == 2
-            else None
+            int(image_embeddings.shape[1]) if image_embeddings.size else None
         ),
-        "missing_embedding_ids": missing_embeddings,
-        "unexpected_embedding_ids": unexpected_embeddings,
+        "text_embedding_dimension": (
+            int(text_embeddings.shape[1]) if text_embeddings.size else None
+        ),
         "caption_count_mismatch_ids": caption_count_mismatch,
         "caption_reference_count_mismatch": caption_reference_count_mismatch,
         "metadata_count": metadata_count,
@@ -3370,6 +3527,7 @@ def build_parser():
         "preprocess",
         help="Create RGB images, isolated caption files, and linked metadata.",
     )
+    preprocess_parser.add_argument("--config", default="configs/phase1.yaml")
     preprocess_parser.add_argument("--splits", required=True)
     preprocess_parser.add_argument("--instances", required=True)
     preprocess_parser.add_argument(
@@ -3401,6 +3559,7 @@ def build_parser():
     embed_parser = commands.add_parser(
         "embed", help="Build normalized CLIP or Sentence-BERT embeddings."
     )
+    embed_parser.add_argument("--config", default="configs/phase1.yaml")
     embed_parser.add_argument("--manifest", required=True, help="Use the frozen knowledge-base manifest.")
     embed_parser.add_argument(
         "--captions",
@@ -3418,6 +3577,7 @@ def build_parser():
     index_parser = commands.add_parser(
         "build-index", help="Build a reproducible exact cosine vector index."
     )
+    index_parser.add_argument("--config", default="configs/phase1.yaml")
     index_parser.add_argument("--embeddings", required=True)
     index_parser.add_argument("--metadata", required=True)
     index_parser.add_argument("--output", required=True, help="Output .npz file.")
@@ -3427,6 +3587,7 @@ def build_parser():
         "build-faiss-index",
         help="Build separate CLIP image, CLIP caption, and Sentence-BERT indexes.",
     )
+    faiss_parser.add_argument("--config", default="configs/phase1.yaml")
     faiss_parser.add_argument("--clip-embeddings", required=True)
     faiss_parser.add_argument("--sbert-embeddings", required=True)
     faiss_parser.add_argument("--metadata", required=True)
@@ -3438,6 +3599,7 @@ def build_parser():
         "encode-query",
         help="Encode an image or text query in its matching retrieval space.",
     )
+    encode_parser.add_argument("--config", default="configs/phase1.yaml")
     encode_parser.add_argument(
         "--encoder",
         required=True,
@@ -3453,6 +3615,7 @@ def build_parser():
     retrieve_parser = commands.add_parser(
         "retrieve", help="Query a saved FAISS index and apply image-ID exclusions."
     )
+    retrieve_parser.add_argument("--config", default="configs/phase1.yaml")
     retrieve_parser.add_argument("--index", required=True)
     retrieve_parser.add_argument("--mapping", required=True)
     retrieve_parser.add_argument("--query-vector", required=True)
@@ -3466,6 +3629,7 @@ def build_parser():
     quality_parser = commands.add_parser(
         "quality-check", help="Audit embeddings, captions, and split leakage."
     )
+    quality_parser.add_argument("--config", default="configs/phase1.yaml")
     quality_parser.add_argument("--manifest")
     quality_parser.add_argument("--embeddings")
     quality_parser.add_argument(
@@ -3507,7 +3671,19 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command in {"audit", "select", "split"}:
+    if args.command in {
+        "audit",
+        "select",
+        "split",
+        "preprocess",
+        "embed",
+        "build-index",
+        "build-faiss-index",
+        "encode-query",
+        "retrieve",
+        "quality-check",
+        "release-manifest",
+    }:
         try:
             apply_config(args)
         except (OSError, ValueError, RuntimeError) as error:
@@ -3541,9 +3717,25 @@ def main(argv=None):
                 "seed",
                 "near_duplicate_threshold",
             ),
+            "preprocess": (
+                "splits",
+                "instances",
+                "captions",
+                "output",
+            ),
+            "embed": ("manifest", "output"),
+            "build-index": ("embeddings", "metadata", "output"),
+            "build-faiss-index": (
+                "clip_embeddings",
+                "sbert_embeddings",
+                "metadata",
+                "output",
+            ),
+            "quality-check": ("output",),
+            "release-manifest": ("splits", "output"),
         }
         missing = [
-            name for name in required_by_command[args.command]
+            name for name in required_by_command.get(args.command, ())
             if getattr(args, name, None) is None
         ]
         if missing:
